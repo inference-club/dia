@@ -34,8 +34,16 @@ WORKDIR /app
 
 # Dependency layer first (cached until pyproject/lock change). --no-install-project
 # skips building this repo as a package: server.py runs as a plain script.
+#
+# Re-lock on this Linux builder before syncing: the committed uv.lock was
+# resolved on macOS and omits torch's Linux CUDA runtime wheels
+# (nvidia-*-cu12 — libcudart, libcublas, libcusparseLt, cuDNN, …), so a frozen
+# install crashes at `import torch` with "libcusparseLt.so.0: cannot open
+# shared object file". uv lock writes the universal (all-platform) graph; sync
+# then installs the Linux subset including those nvidia deps.
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project --python python3.10
+RUN uv lock --python python3.10 && \
+    uv sync --frozen --no-dev --no-install-project --python python3.10
 
 # Application code.
 COPY server.py client.py ./
