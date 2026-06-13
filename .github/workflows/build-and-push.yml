@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   build:
-    name: build ${{ env.IMAGE }}
+    name: build dia
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
