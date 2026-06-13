@@ -1,23 +1,30 @@
 # Dia voice-cloning / text-to-dialogue service.
 #
-# Plain Python base + CUDA-enabled torch wheels (cu126, pinned in
-# pyproject/uv.lock). GPU access comes from the NVIDIA container runtime at
-# run time (`runtimeClassName: nvidia` in k8s / `--gpus all` with Docker) —
-# the cu126 wheels bundle the CUDA userspace libs, so no CUDA base image is
-# needed. Dia requires Python 3.10 (<3.11).
-FROM python:3.10-slim AS base
+# NVIDIA CUDA runtime base so torch's CUDA userspace libs (libcudart.so.12,
+# libcublas, cuDNN) are present system-wide — the cu126 torch wheels do NOT
+# bundle them, so a plain python base crashes at `import torch` with
+# "libcudart.so.12: cannot open shared object file". GPU access at run time
+# still needs the NVIDIA container runtime (`runtimeClassName: nvidia` /
+# `--gpus all`). Ubuntu 22.04 ships Python 3.10, which Dia requires (<3.11).
+FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04 AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     UV_LINK_MODE=copy \
-    UV_COMPILE_BYTECODE=1
+    UV_COMPILE_BYTECODE=1 \
+    DEBIAN_FRONTEND=noninteractive
 
-# git: nari-tts is installed from GitHub. libsndfile1: soundfile runtime.
-# ffmpeg: decode non-wav audio prompts.
+# python3.10 + venv: the interpreter uv builds the venv with. git: nari-tts is
+# installed from GitHub. libsndfile1: soundfile runtime. ffmpeg: decode non-wav
+# audio prompts.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.10 \
+        python3.10-venv \
+        python3.10-dev \
         git \
         ffmpeg \
         libsndfile1 \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # uv for fast, locked installs that honor the cu126 torch index in pyproject.
@@ -28,7 +35,7 @@ WORKDIR /app
 # Dependency layer first (cached until pyproject/lock change). --no-install-project
 # skips building this repo as a package: server.py runs as a plain script.
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN uv sync --frozen --no-dev --no-install-project --python python3.10
 
 # Application code.
 COPY server.py client.py ./
